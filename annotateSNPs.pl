@@ -1,64 +1,56 @@
 use warnings;
 use strict;
 
-my $dir = '/Users/singhal/thesisWork/introgression/';
-my $data = $dir . 'clineAndSummaryStats.out';
-my @contacts = qw(carlia gillies nBMB sjo);
+my $dir = '/Users/singhal/Desktop/activeWork/annotateExome/';
+#a TDT file with CONTIGNAME / POSITION / REFERENCE BASE / SNP CALL
+my $snpFile = $dir . 'snp.out';
+#my annotated exome contig file
+my $seq = $dir . 'finalExomeAssembly.fa.annotated';
 
 my %snp;
-open(IN, "<$data");
-my $junk = <IN>;
+open(IN, "<$snpFile");
 while(<IN>) {
 	chomp(my $line = $_);
 	my @d = split(/\t/,$line);	
-	$snp{$d[0]}{$d[1]}{$d[2]}{'1'} = 'N';
-	$snp{$d[0]}{$d[1]}{$d[2]}{'2'} = 'N';
+	$snp{$d[0]}{$d[1]}{'1'} = $d[2];
+	$snp{$d[0]}{$d[1]}{'2'} = $d[3];
 	}
 close(IN);
 
-foreach my $contact (@contacts) {
-	my $seq = $dir . "targetSequences/final/" . $contact . "_targets.fa.annotated";
-	my $s = parseSeq($seq);
+my $s = parseSeq($seq);
 	
-	my $vcf1 = $dir . "vcf/" . $contact . ".vcf";
-	my $vcf2 = $dir . "vcf/" . $contact . "_HZ.vcf";
-	
-	my $snp = parseVCF($vcf1,\%snp,$contact);
-	$snp = parseVCF($vcf2,\%snp, $contact);
-	%snp = %{$snp};
-	
-	foreach my $contig (keys %{$snp{$contact}}) {
-		foreach my $pos (keys %{$snp{$contact}{$contig}}) {
-			my $type = 'nc';
-			my @gs = @{$s->{$contig}->{'gs'}};
-			my @ge = @{$s->{$contig}->{'ge'}};
-			
+foreach my $contig (keys %snp) {
+	foreach my $pos (keys %{$snp{$contig}}) {
+		my $type = 'NA';
+		my @gs = @{$s->{$contig}->{'gs'}};
+		my @ge = @{$s->{$contig}->{'ge'}};
+		
+		if ($s->{$contig}->{'utr'}) {
+			$type = 'nc';
+			}
+		elsif (scalar(@gs) > 0) {	
+			$type = 'nc';							
 			for (my $i = 0; $i < scalar(@gs); $i++) {
 				if ($pos >= $gs[$i] && $pos <= $ge[$i]) {
 					$type = "coding";
 					}
 				}
 				
-			if ($type eq "coding") {
-			
+			if ($type eq "coding") {			
 				my $seq1 = $s->{$contig}->{'seq'}; my $seq2 = $seq1;
 				my $s_s1 = substr $seq1, 0, $pos - 1;
 				my $e_s1 = substr $seq1, $pos;
-				$seq1 = $s_s1 . $snp->{$contact}->{$contig}->{$pos}->{'1'} . $e_s1;
+				$seq1 = $s_s1 . $snp{$contig}{$pos}{'1'} . $e_s1;
 					
 				my $s_s2 = substr $seq2, 0, $pos - 1;
 				my $e_s2 = substr $seq2, $pos;
-				$seq2 = $s_s2 . $snp->{$contact}->{$contig}->{$pos}->{'2'} . $e_s2;					
+				$seq2 = $s_s2 . $snp{$contig}{$pos}{'2'} . $e_s2;					
 
 				my $subseq1;
 				for (my $i = 0; $i < scalar(@gs); $i++) {
 					my $start = $gs[$i] - 1;
 					my $l = $ge[$i] - $gs[$i] + 1;		
 					$subseq1 .= substr $seq1, $start, $l;		
-					}
-				if ($s->{$contig}->{'rc'}) {
-					$subseq1 = reverse($subseq1);
-					$subseq1 =~ tr/ATGC/TACG/;
 					}
 				
 				my $subseq2;
@@ -67,10 +59,6 @@ foreach my $contact (@contacts) {
 					my $l = $ge[$i] - $gs[$i] + 1;		
 					$subseq2 .= substr $seq2, $start, $l;		
 					}
-				if ($s->{$contig}->{'rc'}) {
-					$subseq2 = reverse($subseq2);
-					$subseq2 =~ tr/ATGC/TACG/;
-					}	
 					
 				my $aa1 = translate($subseq1);
 				my $aa2 = translate($subseq2);
@@ -81,37 +69,12 @@ foreach my $contact (@contacts) {
 				else {
 					$type = "nonsyn";
 					}						
-				}
-			
-			print $contact, "\t", $contig, "\t", $pos, "\t", $type, "\n";
-			
+				}			
 			}
+		print $contig, "\t", $pos, "\t", $type, "\n";	
 		}	
 	}
-	
-sub parseVCF {
-	my ($vcf,$snp,$contact) = @_;
-	
-	my %snp = %{$snp};
-	
-	open(IN, "<$vcf");
-	while(<IN>) {
-		chomp(my $line = $_);
-		if ($line =~ m/^ENS/) {
-			my @d = split(/\t/,$line);
-			
-			if (exists $snp{$contact}{$d[0]}{$d[1]}) {
-				$snp{$contact}{$d[0]}{$d[1]}{'1'} = $d[3];
-				$snp{$contact}{$d[0]}{$d[1]}{'2'} = $d[4];
-				}
-				
-			}
-		}
-	close(IN);	
-
-	return(\%snp);
-	}		
-	
+		
 sub parseSeq {
 	my ($s) = @_;
 	my %s;
@@ -127,8 +90,8 @@ sub parseSeq {
 			$s{$id}{'seq'} = $seq;
 			$s{$id}{'gs'} = \@gs;
 			$s{$id}{'ge'} = \@ge;
-			if ($line =~ m/R_/) {
-				$s{$id}{'rc'} = '1';
+			if ($line =~ m/_utr/) {
+				$s{$id}{'utr'} = '1';
 				}
 			}
 		}
